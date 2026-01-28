@@ -16,7 +16,7 @@ services:
       PMA_HOST: db
       PMA_PORT: 3306
     ports:
-      - "127.0.0.1:8081:80"
+      - ":8087:80"
     depends_on:
       - db
     restart: unless-stopped

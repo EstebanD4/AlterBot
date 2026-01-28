@@ -29,7 +29,7 @@ jobs:
         run: echo "OWNER_LC=${GITHUB_REPOSITORY_OWNER,,}" >> $GITHUB_ENV
 
       # -----------------------------
-      # Docker setup
+      # Docker setup + login GHCR
       # -----------------------------
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -55,54 +55,33 @@ jobs:
             ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       # -----------------------------
-      # Upload compose.yml to VPS (as ${VPS_PATH}/compose.yml)
-      # -----------------------------
-      - name: Upload compose.yml to VPS
-        uses: appleboy/scp-action@v0.1.7
-        with:
-          host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
-          key: ${{ secrets.VPS_SSH_KEY }}
-          source: "alterbot/docker/compose.yml"
-          target: "${{ secrets.VPS_PATH }}"
-          strip_components: 2
-          overwrite: true
-
-      # -----------------------------
-      # Deploy on VPS
+      # Deploy on VPS (git pull + docker compose)
       # -----------------------------
       - name: Deploy on VPS
         uses: appleboy/ssh-action@v1.2.0
         with:
           host: ${{ secrets.VPS_HOST }}
-          username: ${{ secrets.VPS_USER }}
+          username: ${{ secrets.VPS_USER }}     # root
           key: ${{ secrets.VPS_SSH_KEY }}
           script: |
             set -e
 
-            mkdir -p "${{ secrets.VPS_PATH }}"
+            # Go to repo folder on VPS (must be cloned once)
             cd "${{ secrets.VPS_PATH }}"
 
-            # IMPORTANT: if a folder named compose.yml exists from previous runs, remove it
-            rm -rf compose.yml
-
-            # If scp didn't land as compose.yml for some reason, try to find it and normalize
-            if [ -f "alterbot/docker/compose.yml" ]; then
-              mv -f alterbot/docker/compose.yml compose.yml
-              rm -rf alterbot
-            fi
-
-            # Ensure compose.yml exists
-            if [ ! -f "compose.yml" ]; then
-              echo "ERROR: compose.yml not found in $(pwd)"
-              echo "Directory listing:"
-              ls -la
+            if [ ! -d ".git" ]; then
+              echo "ERROR: No git repo found in $(pwd)."
+              echo "Clone it once on VPS:"
+              echo "  cd ${{ secrets.VPS_PATH }} && git clone https://github.com/EstebanD4/AlterBot.git ."
               exit 1
             fi
 
-            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+            # Update code to latest main
+            git fetch --all
+            git reset --hard origin/main
 
-            # Create runtime .env
+            # Write runtime env (.env) from GitHub Secrets
+            OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
             cat > .env << EOF
             GITHUB_OWNER=$OWNER_LC
             DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}
@@ -112,10 +91,14 @@ jobs:
             DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
             EOF
 
-            # GHCR login (OK if image is private; if public you can remove this)
-            echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
+            # Move to compose folder (inside repo)
+            cd alterbot/docker
 
-            # Use explicit compose file
+            # Sanity checks
+            ls -la
+            test -f compose.yml
+
+            # Deploy
             docker compose -f compose.yml pull bot
             docker compose -f compose.yml up -d
             docker image prune -f

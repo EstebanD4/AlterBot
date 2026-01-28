@@ -55,7 +55,7 @@ jobs:
             ghcr.io/${{ env.OWNER_LC }}/${{ env.IMAGE_NAME }}:${{ github.sha }}
 
       # -----------------------------
-      # Upload docker-compose file
+      # Upload compose.yml to VPS (as ${VPS_PATH}/compose.yml)
       # -----------------------------
       - name: Upload compose.yml to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -63,8 +63,10 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
-          source: "compose.yml"
+          source: "alterbot/docker/compose.yml"
           target: "${{ secrets.VPS_PATH }}"
+          strip_components: 2
+          overwrite: true
 
       # -----------------------------
       # Deploy on VPS
@@ -81,6 +83,23 @@ jobs:
             mkdir -p "${{ secrets.VPS_PATH }}"
             cd "${{ secrets.VPS_PATH }}"
 
+            # IMPORTANT: if a folder named compose.yml exists from previous runs, remove it
+            rm -rf compose.yml
+
+            # If scp didn't land as compose.yml for some reason, try to find it and normalize
+            if [ -f "alterbot/docker/compose.yml" ]; then
+              mv -f alterbot/docker/compose.yml compose.yml
+              rm -rf alterbot
+            fi
+
+            # Ensure compose.yml exists
+            if [ ! -f "compose.yml" ]; then
+              echo "ERROR: compose.yml not found in $(pwd)"
+              echo "Directory listing:"
+              ls -la
+              exit 1
+            fi
+
             OWNER_LC=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
 
             # Create runtime .env
@@ -93,9 +112,10 @@ jobs:
             DB_ROOT_PASSWORD=${{ secrets.DB_ROOT_PASSWORD }}
             EOF
 
-            # Login GHCR (safe even if public)
+            # GHCR login (OK if image is private; if public you can remove this)
             echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u "${{ github.actor }}" --password-stdin || true
 
-            docker compose pull bot
-            docker compose up -d
+            # Use explicit compose file
+            docker compose -f compose.yml pull bot
+            docker compose -f compose.yml up -d
             docker image prune -f

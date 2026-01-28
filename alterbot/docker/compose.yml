@@ -1,0 +1,26 @@
+services:
+  db:
+    image: mariadb:11
+    environment:
+      MARIADB_DATABASE: alterbot
+      MARIADB_USER: alterbot
+      MARIADB_PASSWORD: alterbot
+      MARIADB_ROOT_PASSWORD: rootpassword
+    volumes:
+      - alterbot_db:/var/lib/mysql
+    restart: unless-stopped
+
+  phpmyadmin:
+    image: phpmyadmin:latest
+    environment:
+      PMA_HOST: db
+      PMA_PORT: 3306
+      PMA_ARBITRARY: 0
+    depends_on:
+      - db
+    restart: unless-stopped
+    ports:
+      - "8081:80"
+
+volumes:
+  alterbot_db:

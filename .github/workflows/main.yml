@@ -64,7 +64,10 @@ jobs:
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           source: "alterbot/docker/compose.yml"
-          target: "${{ secrets.VPS_PATH }}"
+          target: "${{ secrets.VPS_PATH }}/compose.yml"
+          strip_components: 2
+          overwrite: true
+
 
       # -----------------------------
       # Deploy on VPS
